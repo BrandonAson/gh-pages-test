@@ -1,0 +1,170 @@
+---
+title: "Machine Learning Project"
+output: html_document
+---
+
+#####Executive Summary:
+The goal of this project is to predict the manner in which 6 participants performed barbell lifts.  Movements were measured with accelerometers placed on the belt, forearm, arm, and dumbell.  Barbell lifts were separated into five classes (class A-E) based on these measurements.  These data were originally obtained from the following website <http://groupware.les.inf.puc-rio.br/har>.  Three different models (**predicting with trees**, **random forest**, and **boosting**) were assessed for accuracy, and random forest was selected and accurately predicted all 20 test cases.
+
+
+#####Load R packages & datasets:
+The following R packages were loaded and the datasets were downloaded and loaded into R using the following commands.
+
+```{r, warning =FALSE, message = FALSE}
+  ############### LOAD PACKAGES ################
+  library(caret)
+  library(ggplot2)
+  library(rattle)
+```
+
+
+**Training File:**  The following commands were used to download, unzip, and load the training file.
+```{r}
+  #################### DOWNLOAD & UNZIP THE TRAINING FILE ################
+  #download training file if the file is not in the working directory
+  if (!file.exists("./train.csv"))
+  {
+    fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+    download.file(fileUrl, destfile = "train.csv", method = "curl")
+    dateDownload <- date()
+    dateDownload  
+  }
+  
+  #################### LOAD THE TRAINING FILE ################
+  #Note: converts empty cells and #DIV/0! to NA
+  trainSet <- read.csv("./train.csv", sep = ",", na.strings = c("NA", "", "#DIV/0!"),header = TRUE)
+  dim(trainSet)
+```
+
+Note that the training file is large with 160 variables (columns) and 19,622 entries (rows).
+
+**Test File:** The following commands were used to download, unzip, and load the test file.  The **test file will be used for validation** and will be **referred to as the validation file**.
+```{r}
+  ################## DOWNLOAD & UNZIP THE TESTING FILE ####################
+  ###### NOTE TESTING FILE WILL BE REFERRED TO AS THE VALIDATION FILE ######
+  #download validation file if the file is not in the working directory
+  if (!file.exists("./validate.csv"))
+  {
+    fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+    download.file(fileUrl, destfile = "validate.csv", method = "curl")
+    dateDownload <- date()
+    dateDownload  
+  }
+  
+  #################### LOAD THE VALIDATION FILE ################
+  #Note: converts empty cells and #DIV/0! to NA
+  validationSet <- read.csv("./validate.csv", sep = ",", na.strings = c("NA", "", "#DIV/0!"),header = TRUE)
+  dim(validationSet)
+```
+
+The validation set contains 20 entries (rows) and 160 variables (columns).
+
+#####Preprocessing:
+The training dataset is large and was split into a training and a test set.  
+```{r}
+  #################### BREAK INTO TRAINING & TEST SETS ############################
+  inTrain <- createDataPartition(y = trainSet$classe, p = 0.6, list = FALSE)
+  training <- trainSet[as.vector(inTrain),]
+  testing <- trainSet[as.vector(-inTrain),]
+```
+
+
+The training portion of the training dataset was checked to determine if there are covariates with very low or no variability.  These covariates were then removed using the following commands.
+```{r}
+  ################## PREPROCESS - CHECK FOR AND REMOVE COVARIATEs WTIH NO VARIABILITY ################
+  
+  nzv <- nearZeroVar(training, saveMetrics = TRUE)
+  nzv <- nearZeroVar(training)
+  filterTraining <- training[, -nzv]
+```
+
+
+Many variables contain a large number of missing values (NAs).  Given the large number of variables in the dataset, these variables were removed to decrease processing time. In addition, the first few variables were not accelerometer readings and were also removed.
+```{r}
+  ### PREPROCESS - DELETE EXTRANEOUS COLUMNS & REMOVE COLUMNS MISSING VALUES (NAs) THAT WILL BREAK CM ####
+  
+  filterTraining <- filterTraining[, -(1:7)]
+  deleteNA <- sapply(filterTraining, function(x) {!any(is.na(x))} )
+  filterTraining <- filterTraining[ ,deleteNA]
+
+  ### Note: same preprocessing needed for the test set 
+  ### for the confusion matrix to work
+  
+  filterTesting <- testing[,-nzv]
+  filterTesting <- filterTesting[,-(1:7)]
+  filterTesting <- filterTesting[,deleteNA]
+```
+
+
+#####Model Evaluation:
+Three different models (**predicting with trees**, **random forest**, and **boosting**) were assessed.
+
+**Predicting with Trees Model**
+```{r}
+  ##### PREDICTING WITH TREES MODEL #####
+  set.seed(1900)
+  modFit <- train(classe ~ ., method = "rpart", data = filterTraining)
+  
+  treePredictions <- predict(modFit, newdata = filterTesting)
+  CM <- confusionMatrix(treePredictions, filterTesting$classe)  
+```
+
+Cross validation was performed by making predictions on the portion of the training set that was initially separated and not used for generating the model (the filterTesting data set).  Predicting with trees was relatively fast but had very **low accuracy (0.60)** and an out of sample error of 0.4.  
+```{r}
+  print(CM)
+```
+
+This is best represented by a plot of the confusion matrix.
+```{r}
+  plot(CM[[2]], main = "Predicting with Trees Model - Confusion Matrix")
+```
+
+**Random Forest Model**
+```{r}
+############ RANDOM FOREST MODEL ###########
+  set.seed(1900)
+  modFitRanForest <- train(classe ~ ., data = filterTraining, method = "rf")
+
+  forestPredictions <- predict(modFitRanForest, newdata = filterTesting)
+  CM.RF <- confusionMatrix(forestPredictions, filterTesting$classe)
+```
+
+Cross validation was performed by making predictions on the portion of the training set that was initially separated and not used for generating the model (the filterTesting data set).  Random Forest modelling was slow but had a **high level of accuracy (0.99)** and a low out of sample error of 0.01.
+```{r}
+  print(CM.RF)
+```
+
+This can be observed by a confusion matrix plot.
+```{r}
+  plot(CM.RF[[2]], main = "Random Forest Model - Confusion Matrix")
+```
+
+**Boosting Model**
+```{r}
+  ####### BOOSTING #########
+  set.seed(1900)
+  modFitBoost <- train(classe ~ ., method = "gbm", data = filterTraining, verbose = FALSE)
+  
+  boostPredictions <- predict(modFitBoost, newdata = filterTesting)
+  CM.Boost <- confusionMatrix(boostPredictions, filterTesting$classe)
+```
+
+Cross validation was performed by making predictions on the portion of the training set that was initially separated and not used for generating the model (the filterTesting data set).  Boosting modelling was also slow, although not as slow as Random Forest Modelling, and also had a **high level of accuracy (0.96)** and a low out of sample error 0.04.
+```{r}
+  print(CM.Boost)
+```
+
+This can be observed by a confusion matrix plot.
+```{r}
+  plot(CM.Boost[[2]], main = "Boosting Model - Confusion Matrix")
+```
+
+#####Predictions: 
+The predictions for the validation set were made using the following command.  Note, that the predictions output are not included here but could be obtained using the print command.
+```{r}
+  ################## MAKE PREDICTIONS ####################
+  predictions <- predict(modFitRanForest, validationSet)
+```
+
+#####Conclusions:  
+Three models were evaluated.  Predicting with Trees was fast but less accurate (0.60).  Both Random Forest and Boosting were very slow but both were very accurate (0.99 and 0.96, respectively).  Random Forest Modeling was used to make predictions on the test set and accurately predicted all 20 entries in the set.
